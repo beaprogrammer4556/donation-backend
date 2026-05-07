@@ -8,185 +8,123 @@ const rateLimit = require("express-rate-limit");
 const validator = require("validator");
 const morgan = require("morgan");
 const { v4: uuidv4 } = require("uuid");
-const qs = require("querystring");
 
-const {
-  encrypt,
-  decrypt
-} = require("./utils/ccavutil");
+const { encrypt } = require("./utils/ccavutil");
 
 const app = express();
 
 app.use(helmet());
 app.disable("x-powered-by");
 
-// app.use(cors());
-
-app.use(cors({
-  origin: "*"
-}));
-
+app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "10kb" }));
-
 app.use(morgan("combined"));
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50
+  max: 50,
 });
-
 app.use(limiter);
 
-mongoose.connect(process.env.MONGO_URI)
+// DB
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected"))
   .catch((err) => {
     console.log("MongoDB Error:", err);
     process.exit(1);
   });
 
+// Schema
 const donationSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true
-  },
-
-  phone: {
-    type: String,
-    required: true,
-    trim: true
-  },
-
-  amount: {
-    type: Number,
-    required: true
-  },
-
-  employeeCode: {
-    type: String,
-    default: "GENERAL"
-  },
-
+  name: { type: String, required: true, trim: true },
+  phone: { type: String, required: true, trim: true },
+  amount: { type: Number, required: true },
+  employeeCode: { type: String, default: "GENERAL" },
   paymentStatus: {
     type: String,
     enum: ["pending", "success", "failed"],
-    default: "pending"
+    default: "pending",
   },
-
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
+  createdAt: { type: Date, default: Date.now },
 });
 
 const Donation = mongoose.model("Donation", donationSchema);
 
+// Donate save only
 app.post("/api/donate", async (req, res) => {
   try {
-
-    const {
-      name,
-      phone,
-      amount,
-      employeeCode
-    } = req.body;
+    const { name, phone, amount, employeeCode } = req.body;
 
     if (!name || !phone || !amount) {
-      return res.status(400).json({
-        message: "All fields are required"
-      });
+      return res.status(400).json({ message: "All fields are required" });
     }
 
     if (!validator.isMobilePhone(phone + "", "en-IN")) {
-      return res.status(400).json({
-        message: "Invalid phone number"
-      });
+      return res.status(400).json({ message: "Invalid phone number" });
     }
 
     if (amount <= 0) {
-      return res.status(400).json({
-        message: "Invalid amount"
-      });
+      return res.status(400).json({ message: "Invalid amount" });
     }
-
-    const newDonation = new Donation({
-      name,
-      phone,
-      amount,
-      employeeCode: employeeCode || "GENERAL",
-      paymentStatus: "pending"
-    });
-
-    await newDonation.save();
-
-    res.status(201).json({
-      message: "Donation saved successfully"
-    });
-
-  } catch (error) {
-
-    console.log(error);
-
-    res.status(500).json({
-      message: "Server error"
-    });
-  }
-});
-
-app.post("/api/payment", async (req, res) => {
-
-  try {
-
-    const {
-      name,
-      phone,
-      amount,
-      employeeCode
-    } = req.body;
-
-    if (!name || !phone || !amount) {
-      return res.status(400).json({
-        message: "All fields required"
-      });
-    }
-
-    const orderId = uuidv4();
 
     const donation = new Donation({
       name,
       phone,
       amount,
       employeeCode: employeeCode || "GENERAL",
-      paymentStatus: "pending"
+      paymentStatus: "pending",
     });
 
     await donation.save();
 
-    const paymentData = {
+    res.status(201).json({ message: "Donation saved successfully" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
-      merchant_id: process.env.CCA_MERCHANT_ID,
+// PAYMENT INIT (CCAvenue FIXED)
+app.post("/api/payment", async (req, res) => {
+  try {
+    const { name, phone, amount, employeeCode } = req.body;
 
-      order_id: orderId,
+    if (!name || !phone || !amount) {
+      return res.status(400).json({ message: "All fields required" });
+    }
 
-      currency: "INR",
+    const orderId = uuidv4();
 
-      amount: amount,
+    await new Donation({
+      name,
+      phone,
+      amount,
+      employeeCode: employeeCode || "GENERAL",
+      paymentStatus: "pending",
+    }).save();
 
-      redirect_url:
-        `${process.env.CLIENT_URL}/payment-success`,
+    // FIXED redirect URLs
+    const redirectUrl = encodeURIComponent(
+      `${process.env.CLIENT_URL}/payment-success`
+    );
 
-      cancel_url:
-        `${process.env.CLIENT_URL}/payment-failed`,
+    const cancelUrl = encodeURIComponent(
+      `${process.env.CLIENT_URL}/payment-failed`
+    );
 
-      language: "EN",
-
-      billing_name: name,
-
-      billing_tel: phone
-    };
-
+    // IMPORTANT: encoded values + required email field
     const paymentString =
-      qs.stringify(paymentData);
+      `merchant_id=${process.env.CCA_MERCHANT_ID}` +
+      `&order_id=${orderId}` +
+      `&currency=INR` +
+      `&amount=${amount.toString()}` +
+      `&redirect_url=${redirectUrl}` +
+      `&cancel_url=${cancelUrl}` +
+      `&language=EN` +
+      `&billing_name=${encodeURIComponent(name)}` +
+      `&billing_tel=${phone}` +
+      `&billing_email=test@example.com`;
 
     const encryptedData = encrypt(
       paymentString,
@@ -194,18 +132,13 @@ app.post("/api/payment", async (req, res) => {
     );
 
     res.json({
-
       encryptedData,
-
-      accessCode: process.env.CCA_ACCESS_CODE
+      accessCode: process.env.CCA_ACCESS_CODE,
     });
-
   } catch (error) {
-
     console.log(error);
-
     res.status(500).json({
-      message: "Payment initiation failed"
+      message: "Payment initiation failed",
     });
   }
 });
