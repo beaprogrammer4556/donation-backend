@@ -104,44 +104,42 @@ app.post("/api/payment", async (req, res) => {
       paymentStatus: "pending",
     }).save();
 
-    // FIXED redirect URLs
-    const redirectUrl = encodeURIComponent(
-      `${process.env.CLIENT_URL}/payment-success`
-    );
+    // redirect URLs
+    const redirectUrl = `${process.env.CLIENT_URL}/payment-success`;
+    const cancelUrl = `${process.env.CLIENT_URL}/payment-failed`;
 
-    const cancelUrl = encodeURIComponent(
-      `${process.env.CLIENT_URL}/payment-failed`
-    );
-
-    // IMPORTANT: encoded values + required email field
+    // CCAvenue string (IMPORTANT FORMAT)
     const paymentString =
-      `merchant_id=${process.env.CCA_MERCHANT_ID}` +
-      `&order_id=${orderId}` +
-      `&currency=INR` +
-      `&amount=${amount.toString()}` +
-      `&redirect_url=${redirectUrl}` +
-      `&cancel_url=${cancelUrl}` +
-      `&language=EN` +
-      `&billing_name=${encodeURIComponent(name)}` +
-      `&billing_tel=${phone}` +
-      `&billing_email=test@example.com`;
+      `${process.env.CCA_MERCHANT_ID}|` +
+      `${orderId}|` +
+      `INR|` +
+      `${amount}|` +
+      `${redirectUrl}|` +
+      `${cancelUrl}|` +
+      `${name}|` +
+      `${phone}|` +
+      `test@example.com`;
 
+    // encryption
     const encryptedData = encrypt(
       paymentString,
       process.env.CCA_WORKING_KEY
     );
 
-    res.json({
+    return res.json({
       encryptedData,
       accessCode: process.env.CCA_ACCESS_CODE,
     });
+
   } catch (error) {
     console.log(error);
-    res.status(500).json({
+
+    return res.status(500).json({
       message: "Payment initiation failed",
     });
   }
 });
+
 
 app.get("/", (req, res) => {
   res.send("Server is running...");
