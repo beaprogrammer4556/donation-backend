@@ -1,8 +1,9 @@
 const crypto = require("crypto");
 
-exports.encrypt = (plainText, workingKey) => {
+exports.encrypt = function (plainText, workingKey) {
 
   const m = crypto.createHash("md5");
+
   m.update(workingKey);
 
   const key = m.digest();
@@ -31,9 +32,10 @@ exports.encrypt = (plainText, workingKey) => {
   return encrypted;
 };
 
-exports.decrypt = (encryptedText, workingKey) => {
+exports.decrypt = function (encryptedText, workingKey) {
 
   const m = crypto.createHash("md5");
+
   m.update(workingKey);
 
   const key = m.digest();
